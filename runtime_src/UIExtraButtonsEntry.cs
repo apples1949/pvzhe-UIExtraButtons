@@ -81,6 +81,9 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 
 	private bool _reportedNoTemplate;
 
+	/// <summary>"解析不到 PacketBank 功能对象"只报一次（v1.0.3）。</summary>
+	private bool _noFeatureReported;
+
 	/// <summary>`GameSaveManager` 类型与 `GetConfigValue`（读横版开关 `MobilePreset` 用）。</summary>
 	private static Type _tSaveMgr;
 	private static MethodInfo _mGetConfig;
@@ -610,10 +613,36 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 			host.AddChild(shop, false, Node.InternalMode.Disabled);
 			host.AddChild(almanac, false, Node.InternalMode.Disabled);
 
-			// 回调：面板脚本上就有公开方法，反射调用（跟着游戏自己的判断走）
-			object boxed = panel;
-			Action onShop = delegate { InvokeMethod(boxed, "ShopButtonPressed"); };
-			Action onAlmanac = delegate { InvokeMethod(boxed, "AlmanacButtonPressed"); };
+			// 回调：
+			// ★★★ v1.0.3 修复「横版 UI 下点了没反应」（用户反馈）：
+			//   `ShopButtonPressed()` / `AlmanacButtonPressed()` **不在面板节点上**，
+			//   而在功能类 `TowerDefenseBattleFeaturePacketBank`（**不是 Node**）上：
+			//       TowerDefenseBattleFeaturePacketBank.cs:613  ShopButtonPressed()
+			//       TowerDefenseBattleFeaturePacketBank.cs:622  AlmanacButtonPressed()
+			//   旧版把回调目标写成 `panel`（`TowerDefenseInGamePacketBank`，一个 Control），
+			//   反射 `GetMethod("ShopButtonPressed")` 必然取到 null ⇒ **静默什么都不做**
+			//   （`InvokeMethod` 用 `m?.Invoke`，null 就悄悄跳过）。
+			//   ⇒ 现在**每次点击时**都重新解析功能对象再调用（面板可能被重建，缓存引用不安全）。
+			Action onShop = delegate
+			{
+				object feat = ResolvePacketBankFeature(panel);
+				if (feat == null)
+				{
+					WarnOnceNoFeature();
+					return;
+				}
+				InvokeMethod(feat, "ShopButtonPressed");
+			};
+			Action onAlmanac = delegate
+			{
+				object feat = ResolvePacketBankFeature(panel);
+				if (feat == null)
+				{
+					WarnOnceNoFeature();
+					return;
+				}
+				InvokeMethod(feat, "AlmanacButtonPressed");
+			};
 			WirePressed(shop, onShop);
 			WirePressed(almanac, onAlmanac);
 
@@ -760,6 +789,99 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 	}
 
 	// ================================================================ 反射工具
+
+	/// <summary>
+	/// 解析 `TowerDefenseBattleFeaturePacketBank` —— `ShopButtonPressed()` /
+	/// `AlmanacButtonPressed()` 的**真正宿主**（**不是节点**，是战斗功能对象）。
+	///
+	/// 两条通道：
+	///   ① 面板自己的 **public 字段** `packetBankFeature`
+	///      （`Registry/Battle/Feature/PacketBank/PacketBank/TowerDefenseInGamePacketBank.cs:56`）；
+	///   ② 兜底 `TowerDefenseManager.Instance.GetPacketBankFeature()`
+	///      （`Core/TowerDefenseManager/TowerDefenseManager.cs:2330`，
+	///        内部走 `currentControl.GetFeature(FeatureName_PacketBank)`）。
+	///
+	/// ⚠️ 两条都拿不到就返回 null；调用方必须能容忍 null（`InvokeMethod` 对 null 直接返回，
+	///   会表现为"点了没反应"，所以调用点额外报了 `WarnOnceNoFeature`）。
+	/// </summary>
+	private static object ResolvePacketBankFeature(object panel)
+	{
+		try
+		{
+			object f = GetMember(panel, "packetBankFeature");
+			if (f != null)
+			{
+				return f;
+			}
+		}
+		catch { }
+		try
+		{
+			object mgr = GetSingleton("TowerDefenseManager");
+			if (mgr != null)
+			{
+				MethodInfo m = mgr.GetType().GetMethod("GetPacketBankFeature",
+					BindingFlags.Public | BindingFlags.Instance);
+				if (m != null)
+				{
+					return m.Invoke(mgr, null);
+				}
+			}
+		}
+		catch { }
+		return null;
+	}
+
+	/// <summary>
+	/// 取游戏单例（`Instance`）。
+	/// ⚠️ 游戏源码里 `Instance` **写法不一致**：`TowerDefenseManager.Instance` /
+	///   `Global.Instance` 是**属性**，而 `GameSaveManager.Instance` 是**字段** ⇒ 两种都试。
+	/// </summary>
+	private static object GetSingleton(string typeName)
+	{
+		try
+		{
+			Type t = null;
+			foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies())
+			{
+				try { t = asm.GetType(typeName, throwOnError: false); } catch { }
+				if (t != null)
+				{
+					break;
+				}
+			}
+			if (t == null)
+			{
+				return null;
+			}
+			PropertyInfo p = t.GetProperty("Instance",
+				BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+			if (p != null)
+			{
+				return p.GetValue(null);
+			}
+			FieldInfo f = t.GetField("Instance",
+				BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+			if (f != null)
+			{
+				return f.GetValue(null);
+			}
+		}
+		catch { }
+		return null;
+	}
+
+	/// <summary>"解析不到功能对象"这条只报一次（避免每次点击刷屏）。</summary>
+	private void WarnOnceNoFeature()
+	{
+		if (_noFeatureReported)
+		{
+			return;
+		}
+		_noFeatureReported = true;
+		Warn("点不到功能对象 TowerDefenseBattleFeaturePacketBank（Shop/Almanac 回调无处可发）。"
+			+ "请检查面板字段 packetBankFeature 与 TowerDefenseManager.GetPacketBankFeature。");
+	}
 
 	private static object GetMember(object target, string name)
 	{
