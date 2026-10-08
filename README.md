@@ -5,12 +5,14 @@
 | 项 | 值 |
 |---|---|
 | Mod ID | `uiextrabuttons` |
-| 版本 | 1.0.2 |
+| 版本 | **1.0.3** |
 | 入口类型 | `UIExtraButtonsEntry` |
 | 程序集身份名 | `JTYUIExtraButtons`（包内文件名仍是 `Runtime/ModAssembly.dll`） |
 | 成品 | [`dist/UIExtraButtons.pmod`](dist/UIExtraButtons.pmod) |
 | 类型 | 纯托管插件（无资源覆盖、无 `provides`/`overrides`） |
 
+> **v1.0.3 变更**（修复「点击无法跳转」）：回调原本挂在**面板节点**上，而 `ShopButtonPressed` / `AlmanacButtonPressed` 实际定义在**功能类** `TowerDefenseBattleFeaturePacketBank` 上，反射取不到方法 ⇒ **静默无反应**；现改为**每次点击先解析功能对象再调用**。
+>
 > **v1.0.2 变更**（依用户反馈「切换到非横版 UI 的情况下为什么还显示？」）：
 > **只在横版 UI（`MobilePreset = true`）下出现**。因为游戏只在横版时才把自带那对按钮藏起来
 > （`_UpdateGuiTopButtonVisibility()`：`if (mobileMode || !_packetBankEntered) → Visible=false`）；
