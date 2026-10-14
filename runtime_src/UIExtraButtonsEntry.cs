@@ -35,6 +35,9 @@ using PVZHE.ModEditor.ModSystem;
 /// </summary>
 public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 {
+	// 赞助码注入器（SponsorQrInjector.cs 共享组件）用的包根缓存
+	internal static string SponsorQrRoot = null;
+
 	private const string LogPrefix = "[UIExtraButtons] ";
 
 	/// <summary>承载两个按钮的容器节点名（幂等判断用）。</summary>
@@ -45,7 +48,7 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 	private const string MyAlmanacName = "ModExtraAlmanacButton";
 
 	/// <summary>诊断日志总开关（排查时置 true）。</summary>
-	private static readonly bool EnableInfoLog = false;
+	private static bool EnableInfoLog;   // 由 Initialize 从「Mod 配置」读取（原为编译期常量）
 
 	/// <summary>
 	/// ★ 关键节点缺失只报一次（**始终输出**，不受 <see cref="EnableInfoLog"/> 门控）。
@@ -64,7 +67,11 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 	/// `true`  ⇒ 全部输出，用于排查。
 	/// ⚠️ `Warn()`（`GD.PrintErr`）**不受**此开关影响 —— 真正的异常报告应当保留。
 	/// </summary>
-	private static readonly bool EnableDiagLog = false;
+	private static bool EnableDiagLog;   // 由 Initialize 从「Mod 配置」读取（原为编译期常量）
+
+	/// <summary>是否显示本 Mod 补的「商店 / 查看图鉴」按钮（面板可关）。</summary>
+	private static bool ShowExtraButtons = true;
+	private bool _settingsSubscribedUibEntry;
 
 	/// <summary>诊断直出（受 <see cref="EnableDiagLog"/> 门控，异常全吞）。</summary>
 	private void Diag(string msg)
@@ -76,7 +83,7 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 		// ⚠️⚠️ 这里**必须**是 GD.Print，不能是 Diag —— 批量替换
 		//   `GD.Print(LogPrefix + …)` → `Diag(…)` 时若把这行也换掉，
 		//   `Diag` 就自己调自己 ⇒ **无限递归 ⇒ StackOverflowException**（catch 抓不住）。
-		try { GD.Print(LogPrefix + msg); } catch { }
+		try { if (EnableInfoLog) { GD.Print(LogPrefix + msg); } } catch { }
 	}
 
 	private bool _reportedNoTemplate;
@@ -134,8 +141,90 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 
 	// ================================================================ 入口三回调
 
-	public void Initialize(XWModRuntimeContext context)
+	
+	// ============================================================ 配置面板接线
+	//
+	// mod.json 里声明了 enableLog（bool，默认 false）。
+	// 这里在 Initialize 读一次 —— 老宿主没有 context.Settings 时吞异常、按 false 处理。
+	// 用 Get<object> 而不是 Get<bool>：宿主把值存成 Dictionary<string, object>，
+	// 直接 Get<bool> 可能抛 InvalidCastException。
+
+	private static bool ReadLogSetting(XWModRuntimeContext context)
 	{
+		try
+		{
+			if (context == null)
+			{
+				return false;
+			}
+			object v = context.Settings.Get<object>("enableLog");
+			if (v is bool b)
+			{
+				return b;
+			}
+			if (v is string s && bool.TryParse(s, out bool sb))
+			{
+				return sb;
+			}
+			if (v is System.Text.Json.JsonElement je)
+			{
+				if (je.ValueKind == System.Text.Json.JsonValueKind.True) { return true; }
+				if (je.ValueKind == System.Text.Json.JsonValueKind.False) { return false; }
+			}
+			return false;
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+
+	// ============================================================ 配置面板接线（P2-8）
+	// mod.json 声明了 showExtraButtons（bool，默认 true）。
+	// 用 Get<object>：宿主存 Dictionary<string, object>，值可能是 bool / string / JsonElement。
+	private static bool ReadBoolSetting(XWModRuntimeContext context, string key, bool fallback)
+	{
+		try
+		{
+			if (context == null) { return fallback; }
+			object v = context.Settings.Get<object>(key);
+			if (v is bool b) { return b; }
+			if (v is string s && bool.TryParse(s, out bool sb)) { return sb; }
+			if (v is System.Text.Json.JsonElement je)
+			{
+				if (je.ValueKind == System.Text.Json.JsonValueKind.True) { return true; }
+				if (je.ValueKind == System.Text.Json.JsonValueKind.False) { return false; }
+			}
+			return fallback;
+		}
+		catch { return fallback; }
+	}
+
+public void Initialize(XWModRuntimeContext context)
+	{
+			try { SponsorQrRoot = context.PackageRoot; } catch { }
+			try
+			{
+				if (context?.Settings != null && !_settingsSubscribedUibEntry)
+				{
+					context.Settings.Changed += _ => { ShowExtraButtons = ReadBoolSetting(_context, "showExtraButtons", true); };
+					_settingsSubscribedUibEntry = true;
+				}
+			}
+			catch { }
+			try
+			{
+				if (context?.Settings != null && !_settingsSubscribedUib)
+				{
+					context.Settings.Changed += OnRuntimeSettingsChanged;
+					_settingsSubscribedUib = true;
+				}
+			}
+			catch { }
+			EnableInfoLog = false;   // ★ 2026-10-14 用户要求：默认关闭所有日志（原：EnableInfoLog = ReadLogSetting(context)）
+
+			ShowExtraButtons = ReadBoolSetting(context, "showExtraButtons", true);
 		try
 		{
 			_context = context;
@@ -228,6 +317,7 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 
 	private void OnProcessFrame()
 	{
+		try { SponsorQrInjector.Tick(Engine.GetMainLoop() as SceneTree, "图鉴商店快捷按钮", SponsorQrRoot, "Resources/SponsorQR.png"); } catch { }
 		try
 		{
 			if (_tree == null || !GodotObject.IsInstanceValid(_tree) || _tree.Root == null)
@@ -249,7 +339,7 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 	private void Maintain()
 	{
 		// 只在有选卡面板时工作（主菜单/关卡选择没有这个节点）
-		Control panel = FindNodeByClassName(_tree.Root, "TowerDefenseInGamePacketBank") as Control;
+		Control panel = CachedPacketBank();
 		if (panel == null || !GodotObject.IsInstanceValid(panel))
 		{
 			// 面板没了 ⇒ 清引用（下次重建）
@@ -355,6 +445,9 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 	/// </summary>
 	private bool ShouldShow(Control panel)
 	{
+			// 面板总开关：关掉就永不显示（其它判据都不用算了）
+			if (!ShowExtraButtons) { return false; }
+
 		try
 		{
 			bool panelVisible = panel.IsVisibleInTree();
@@ -390,19 +483,61 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 	///
 	/// 拿不到横版开关时（罕见）返回 true，让 ② 单独定夺。
 	/// </summary>
+	// ── ★ 性能缓存（2026-10-13 真机探针定位）──
+	private Node _guiTopCached;
+	private object _saveMgrCached;
+	private object _mpCache;
+	private ulong _mpFrame;
+	private bool _mpHave;
+
+	/// <summary>缓存版 GUITop：命中即复用（节点重建时 IsInstanceValid 自动失效）。</summary>
+	private Node GUITopCached()
+	{
+		try
+		{
+			if (_guiTopCached != null && GodotObject.IsInstanceValid(_guiTopCached))
+			{
+				return _guiTopCached;
+			}
+			_guiTopCached = FindNodeByName(_tree.Root, "GUITop");
+			return _guiTopCached;
+		}
+		catch { return null; }
+	}
+
+	/// <summary>
+	/// 缓存版"横版 UI 开关"：值本身每 60 帧（≈1 秒）才重读一次。
+	/// `MobilePreset` 只在玩家切换横/竖版时变，1 秒延迟对"按钮该不该显示"无影响。
+	/// </summary>
+	private object ReadMobilePresetCached()
+	{
+		ulong f = Engine.GetProcessFrames();
+		if (_mpHave && f - _mpFrame < 60UL)
+		{
+			return _mpCache;
+		}
+		_mpFrame = f;
+		_mpHave = true;
+		_mpCache = ReadMobilePreset();
+		return _mpCache;
+	}
+
 	private bool NativeButtonsHidden(Control panel)
 	{
 		try
 		{
 			// ① 横版开关
-			object mobile = ReadMobilePreset();
+			object mobile = ReadMobilePresetCached();
 			if (mobile is bool mp && !mp)
 			{
 				return false;   // 竖版 ⇒ 游戏自带按钮会显示 ⇒ 不需要我
 			}
 
 			// ② 游戏自带按钮的实际可见性（挂在 GUITop 下，不在选卡面板里，所以从 Root 找）
-			Node top = FindNodeByName(_tree.Root, "GUITop");
+			// ★ 性能（2026-10-13 真机探针：本 Mod 回调 3.83ms/帧，是全套里最贵的）：
+			//   原来这里**每帧**一次 `FindNodeByName(_tree.Root, "GUITop")` —— C# 逐节点递归按名查找。
+			//   GUITop 是长期存在的顶层 UI 节点 ⇒ 命中后一直复用（重建时 IsInstanceValid 失效自动重查）。
+			Node top = GUITopCached();
 			if (top != null && GodotObject.IsInstanceValid(top))
 			{
 				Control gShop = top.GetNodeOrNull<Control>("ShopButton");
@@ -435,25 +570,32 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 			{
 				return null;
 			}
-			object mgr = null;
-			const BindingFlags SF = BindingFlags.Public | BindingFlags.NonPublic
-				| BindingFlags.Static | BindingFlags.DeclaredOnly;
-			for (Type cur = _tSaveMgr; cur != null && mgr == null; cur = cur.BaseType)
+			// ★ 性能（真机 3.83ms/帧的另一半）：这里原先**每帧**沿基类链做
+			//   `Type.GetField("Instance")` + `FieldInfo.GetValue` + `GetProperty` + `GetValue`
+			//   —— Mono/安卓上每次都是真反射查找。单例引用解析一次即可（对象被销毁时重解析）。
+			object mgr = _saveMgrCached;
+			if (mgr == null || (mgr is GodotObject go && !GodotObject.IsInstanceValid(go)))
 			{
-				FieldInfo fi = cur.GetField("Instance", SF);
-				if (fi != null)
+				const BindingFlags SF = BindingFlags.Public | BindingFlags.NonPublic
+					| BindingFlags.Static | BindingFlags.DeclaredOnly;
+				for (Type cur = _tSaveMgr; cur != null && mgr == null; cur = cur.BaseType)
 				{
-					mgr = fi.GetValue(null);
+					FieldInfo fi = cur.GetField("Instance", SF);
+					if (fi != null)
+					{
+						mgr = fi.GetValue(null);
+					}
 				}
-			}
-			if (mgr == null)
-			{
-				PropertyInfo pi = _tSaveMgr.GetProperty("Instance",
-					BindingFlags.Public | BindingFlags.Static);
-				if (pi != null)
+				if (mgr == null)
 				{
-					mgr = pi.GetValue(null);
+					PropertyInfo pi = _tSaveMgr.GetProperty("Instance",
+						BindingFlags.Public | BindingFlags.Static);
+					if (pi != null)
+					{
+						mgr = pi.GetValue(null);
+					}
 				}
+				_saveMgrCached = mgr;
 			}
 			if (mgr == null)
 			{
@@ -930,6 +1072,43 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 		catch { }
 	}
 
+	// ─────────────────────────────────────────────────────────────────────────
+	// ★★ 性能（2026-10-12 真机探针）：`Maintain()` 每帧都会 `FindNodeByClassName(_tree.Root,
+	// "TowerDefenseInGamePacketBank")` —— 整树递归 + 每节点反射式类型名比较。
+	// 真机采样：本 Mod 回调均 4.04ms/帧、中位 4.77ms。
+	// 修法：命中后一直用缓存（节点被销毁时 `IsInstanceValid` 自然失效再重查）；
+	//      未命中时才按 10 帧轮询（要能尽快发现"进战斗后出现选卡面板"）。
+	// ─────────────────────────────────────────────────────────────────────────
+	private Control _panelCached;
+	private ulong _panelFrame;
+
+	/// <summary>缓存版"取选卡面板"。</summary>
+	private Control CachedPacketBank()
+	{
+		try
+		{
+			ulong f = Engine.GetProcessFrames();
+			if (_panelCached != null && GodotObject.IsInstanceValid(_panelCached))
+			{
+				return _panelCached;
+			}
+			if (_panelCached != null) { _panelCached = null; }   // 已销毁 ⇒ 立即重查
+			// ★ 性能（真机残留账单：本 Mod 3.75ms/帧、p95 24ms）：未命中时原生 find_child 与
+			//   类名递归都会走一遍，战斗里没有选卡面板 ⇒ 每 10 帧就白付一次整树递归。
+			//   放宽到 30 帧（选卡面板出现后按钮最多晚 0.5s 出现，无感）⇒ 残值降到 ~1/3。
+			else if (_panelFrame != 0UL && f - _panelFrame < 30UL) { return null; }
+			_panelFrame = f;
+			// 优先引擎原生 find_child（该类节点名与类名一致），找不到再退回按类名递归
+			_panelCached = _tree.Root.FindChild("TowerDefenseInGamePacketBank", true, false) as Control;
+			if (_panelCached == null)
+			{
+				_panelCached = FindNodeByClassName(_tree.Root, "TowerDefenseInGamePacketBank") as Control;
+			}
+			return _panelCached;
+		}
+		catch { return null; }
+	}
+
 	private static Node FindNodeByClassName(Node node, string className)
 	{
 		if (node == null)
@@ -1005,6 +1184,26 @@ public sealed class UIExtraButtonsEntry : IXWModRuntimeEntry
 
 	private void Warn(string msg)
 	{
+		if (!EnableInfoLog) { return; }
+		// ★ 2026-10-14：该输出原先绕过日志开关，现统一受 enableLog 控制
 		try { GD.PrintErr(LogPrefix + msg); } catch { }
+	}
+	private bool _settingsSubscribedUib;
+
+	private void OnRuntimeSettingsChanged(System.Collections.Generic.IReadOnlyList<string> keys)
+	{
+		try
+		{
+			// ★ 配置保存后重读（各 Mod 的应用逻辑保持既有入口）
+			OnRuntimeSettingsChangedImpl(keys);
+		}
+		catch { }
+	}
+
+
+	private void OnRuntimeSettingsChangedImpl(System.Collections.Generic.IReadOnlyList<string> keys)
+	{
+		if (_context == null) { return; }
+		try { EnableInfoLog = ReadLogSetting(_context); } catch { }
 	}
 }

@@ -3,20 +3,58 @@
   "id": "uiextrabuttons",
   "name": "图鉴商店快捷按钮",
   "version": "1.0.3",
-  "author": "本地",
-  "description": "在选卡界面右上角横向并排新增「商店 / 查看图鉴」两个按钮，外观与游戏自带按钮一致，只在横版 UI（手机预设 MobilePreset）下出现、只在选卡阶段显示。v1.0.3：修复「点击无法跳转」—— 回调原本挂在面板节点上，而 ShopButtonPressed/AlmanacButtonPressed 实际定义在功能类 TowerDefenseBattleFeaturePacketBank 上，反射取不到方法导致静默无反应；现改为每次点击解析功能对象再调用。",
+  "author": "apples1949",
+  "description": "在选卡界面右上角横向并排新增「商店 / 查看图鉴」两个按钮，外观与游戏自带按钮一致，只在横版 UI（手机预设 MobilePreset）下出现、只在选卡阶段显示。",
+  "playInstructions": "在选卡界面右上角并排加「商店」「查看图鉴」两个入口（横版 UI 下尤其需要）。\n1. 只在选卡阶段、横版 UI 下出现；切回竖版会自动隐藏，避免和游戏自带按钮重复。\n2. 选项 → Mod 管理 → 图鉴商店快捷按钮 → 配置。",
   "dependencies": [],
   "conflicts": [],
   "provides": {},
   "overrides": {},
   "scripts": [],
+  "settings": [
+    {
+      "key": "showExtraButtons",
+      "type": "bool",
+      "label": "显示额外按钮",
+      "group": "功能",
+      "description": "在横版 UI 的选卡界面右上角补「商店 / 查看图鉴」两个入口。关闭后完全不显示。",
+      "applyMode": "immediate",
+      "affectsGameplay": false,
+      "default": true
+    },
+    {
+      "key": "aboutChangelog",
+      "type": "text",
+      "label": "更新内容",
+      "group": "关于",
+      "content": "v1.0.3 · 当前版本\n（更早的历史记录未保留）"
+    },
+    {
+      "key": "enableLog",
+      "type": "bool",
+      "label": "输出诊断日志",
+      "group": "诊断",
+      "description": "排查问题时打开，会把运行状态写进 godot.log。平时关掉，不刷日志。",
+      "applyMode": "immediate",
+      "affectsGameplay": false,
+      "default": false
+    },
+    {
+      "key": "aboutAuthor",
+      "type": "richtext",
+      "label": "作者与链接",
+      "group": "关于",
+      "content": "图鉴商店快捷按钮 v1.0.3 · 作者：apples1949\n\n[url=https://space.bilibili.com/186773722]B 站空间[/url]\n[url=https://apples1949.lanzouc.com/b007uuknqd]蓝奏云下载（密码 762b）[/url]\n\n本模组为玩家自制 Mod，与《植物大战僵尸杂交重制版》官方无隶属关系。\n赞助：微信扫码支持作者（见下方收款码图片）。"
+    }
+  ],
   "runtimeAssembly": "Runtime/ModAssembly.dll",
   "runtimeEntryType": "UIExtraButtonsEntry",
-  "runtimeApiVersion": 1,
+  "runtimeApiVersion": 3,
   "runtimeAssemblyPolicy": "optional",
   "blueprints": [],
   "translations": [],
   "resources": [
+    "Resources/SponsorQR.png",
     "Runtime/ModAssembly.dll"
   ]
 }
